@@ -66,7 +66,10 @@ CLogisticModelDlg::CLogisticModelDlg(CWnd* pParent /*=nullptr*/)
 	, R_koef(3.0)
 	, Length(200)
 	, num_of_counts(100)
-	, precision(1.E-6)
+	, precision(1.E-3)
+	, b1_dot(0)
+	, b2_up_dot(0)
+	, b2_down_dot(0)
 {
 	m_hIcon = AfxGetApp()->LoadIcon(IDR_MAINFRAME);
 }
@@ -92,6 +95,9 @@ void CLogisticModelDlg::DoDataExchange(CDataExchange* pDX)
 	DDX_Control(pDX, IDC_EDIT_PRECISION, Edit_Prec);
 	DDX_Control(pDX, IDC_RADIO_DOTS_DRAW, dots_draw);
 	DDX_Control(pDX, IDC_RADIO_LINES_DRAW, lines_draw);
+	DDX_Text(pDX, IDC_STATIC_BIF_DOT_B1, b1_dot);
+	DDX_Text(pDX, IDC_STATIC_BIF_DOT_B2_UP, b2_up_dot);
+	DDX_Text(pDX, IDC_STATIC_BIF_DOT_B2_DOWN, b2_down_dot);
 }
 
 BEGIN_MESSAGE_MAP(CLogisticModelDlg, CDialogEx)
@@ -103,6 +109,8 @@ BEGIN_MESSAGE_MAP(CLogisticModelDlg, CDialogEx)
 	ON_BN_CLICKED(IDC_CHECK_GEN_R, &CLogisticModelDlg::OnBnClickedCheckGenR)
 	ON_BN_CLICKED(IDC_RADIO_BIFUR, &CLogisticModelDlg::OnBnClickedRadioBifur)
 	ON_BN_CLICKED(IDC_RADIO_LOGISTIC, &CLogisticModelDlg::OnBnClickedRadioLogistic)
+	ON_WM_MOUSEWHEEL()
+	ON_WM_MOUSEMOVE()
 END_MESSAGE_MAP()
 
 
@@ -141,7 +149,7 @@ BOOL CLogisticModelDlg::OnInitDialog()
 
 	bifurcation_dots_pen.CreatePen(			//график
 		PS_SOLID,				//сплошная линия
-		2,						//толщина -1 пикселя
+		3,						//толщина -1 пикселя
 		RGB(255, 0, 0));			//цвет синий
 
 	bifurcation_lines_pen.CreatePen(			//график
@@ -192,77 +200,98 @@ HCURSOR CLogisticModelDlg::OnQueryDragIcon()
 void CLogisticModelDlg::DrawSignal(double* Mass, CDC* WinDc, CRect WinPic, CPen* graphpen, double AbsMax)
 {
 	// поиск максимального и минимального значения
-	Mashtab(Mass, AbsMax, &Min, &Max);
+	Mashtab(Mass, AbsMax, &ymin, &ymax);
 
-	// отрисовка
+
+	ymax = 1.5 * ymax;
+	ymin = -ymax * 0.1;
+	xmax = Length;
+	xmin = -xmax * 0.1;
+
 	// создание контекста устройства
 	CBitmap bmp;
 	CDC* MemDc;
 	MemDc = new CDC;
 	MemDc->CreateCompatibleDC(WinDc);
-	bmp.CreateCompatibleBitmap(WinDc, WinPic.Width(), WinPic.Height());
+
+	double window_signal_width = WinPic.Width() * scale;
+	double window_signal_height = WinPic.Height() * scale;
+	xp = (window_signal_width / (xmax - xmin));			//Коэффициенты пересчёта координат по Х
+	yp = -(window_signal_height / (ymax - ymin));			//Коэффициенты пересчёта координат по У
+
+	bmp.CreateCompatibleBitmap(WinDc, window_signal_width, window_signal_height);
 	CBitmap* pBmp = (CBitmap*)MemDc->SelectObject(&bmp);
 	// заливка фона графика белым цветом
 	MemDc->FillSolidRect(WinPic, RGB(255, 255, 255));
 	// отрисовка сетки координат
-	MemDc->SelectObject(&setka_pen);
-	// вертикальные линии сетки координат
-	for (double i = 0; i < WinPic.Width(); i += WinPic.Width() / 5)
-	{
-		MemDc->MoveTo(i, 0);
-		MemDc->LineTo(i, WinPic.Height());
-	}
-	// горизонтальные линии сетки координат
-	for (double i = WinPic.Height() / 10; i < WinPic.Height(); i += WinPic.Height() / 5)
-	{
-		MemDc->MoveTo(0, i);
-		MemDc->LineTo(WinPic.Width(), i);
-	}
-	// отрисовка осей
 	MemDc->SelectObject(&osi_pen);
-	// отрисовка оси X
+
 	//создаём Ось Y
-	MemDc->MoveTo(0, WinPic.Height() * 9 / 10); MemDc->LineTo(WinPic.Width(), WinPic.Height() * 9 / 10);
-	// отрисовка оси Y
-	MemDc->MoveTo(WinPic.Width() * 1 / 15, WinPic.Height()); MemDc->LineTo(WinPic.Width() * 1 / 15, 0);
+	MemDc->MoveTo(DOTS(defaultX0, ymax));
+	MemDc->LineTo(DOTS(defaultX0, ymin));
+	//создаём Ось Х
+	MemDc->MoveTo(DOTS(xmin, -defaultY0));
+	MemDc->LineTo(DOTS(xmax, -defaultY0));
+
+	MemDc->SelectObject(&setka_pen);
+	//отрисовка сетки по y
+	for (double x = 0; x <= xmax; x += xmax / scale / 8)
+	{
+		if (x != 0) {
+			MemDc->MoveTo(DOTS(x, ymax));
+			MemDc->LineTo(DOTS(x, ymin));
+		}
+	}
+	//отрисовка сетки по x
+	for (double y = -ymax; y < ymax; y += ymax / scale / 4)
+	{
+		if (y != 0) {
+			MemDc->MoveTo(DOTS(xmin, y));
+			MemDc->LineTo(DOTS(xmax, y));
+		}
+	}
+
 	// установка прозрачного фона текста
 	MemDc->SetBkMode(TRANSPARENT);
 	// установка шрифта
 	CFont font;
-	font.CreateFontW(14.5, 0, 0, 0, FW_REGULAR, 0, 0, 0, ANSI_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS || CLIP_LH_ANGLES, DEFAULT_QUALITY, DEFAULT_PITCH, _T("Century Gothic"));
+	font.CreateFontW(14.5, 0, 0, 0, FW_HEAVY, 0, 0, 0, ANSI_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS || CLIP_LH_ANGLES, DEFAULT_QUALITY, DEFAULT_PITCH, _T("Century Gothic"));
 	MemDc->SelectObject(&font);
-	// подпись оси X
-	MemDc->TextOut(WinPic.Width() * 14 / 15 + 4, WinPic.Height() * 9 / 10 + 2, CString("t"));
-	// подпись оси Y
-	MemDc->TextOut(WinPic.Width() * 1 / 15 + 10, 0, CString("A"));
-	// выбор области для рисования
-	xx0 = WinPic.Width() * 1 / 15; xxmax = WinPic.Width();
-	yy0 = WinPic.Height() / 10; yymax = WinPic.Height() * 9 / 10;
+
+	//подпись осей
+	MemDc->TextOutW(DOTS(0.02 * xmax, 0.98 * ymax), _T("Xn")); //Y
+	MemDc->TextOutW(DOTS(xmax - xmax / 15, 0.2 * ymax), _T("N")); //X
+
+	//по Y с шагом 5
+	for (double i = -ymax; i <= ymax; i += ymax / scale / 4)
+	{
+		CString str;
+		if (i != 0)
+		{
+			str.Format(_T("%.3f"), i / scale + defaultY0 / scale);
+			MemDc->TextOutW(DOTS(defaultX0 - xmax / 12, i + 0.03 * ymax), str);
+		}
+	}
+	//по X с шагом 0.5
+	for (double j = 0; j <= xmax; j += xmax / scale / 8)
+	{
+		CString str;
+		if (j != 0) {
+			str.Format(_T("%.1f"), j / scale - defaultX0 / scale);
+			MemDc->TextOutW(DOTS(j - xmax / 100, -defaultY0), str);
+		}
+	}
+
 	// отрисовка
 	MemDc->SelectObject(graphpen);
-	MemDc->MoveTo(xx0, yymax + (Mass[0] - Min) / (Max - Min) * (yy0 - yymax));
-	for (int i = 0; i < AbsMax; i++)
+	MemDc->MoveTo(DOTS(defaultX0, Mass[0] * scale - defaultY0));
+	for (int i = 1; i < AbsMax; i++)
 	{
-		xxi = xx0 + (xxmax - xx0) * i / (AbsMax - 1);
-		yyi = yymax + (Mass[i] - Min) / (Max - Min) * (yy0 - yymax);
-		MemDc->LineTo(xxi, yyi);
+		MemDc->LineTo(DOTS(i + defaultX0, Mass[i] * scale - defaultY0));
 	}
-	/* вывод числовых значений
-	 по оси X*/
-	MemDc->SelectObject(&font);
-	for (int i = 1; i < 5; i++)
-	{
-		sprintf_s(znach, "%.1f", i * (AbsMax / 5));
-		MemDc->TextOut(i * (WinPic.Width() / 5) - AbsMax * 0.09, WinPic.Height() * 9 / 10 + 2, CString(znach));
-	}
-	// по оси Y
-	for (int i = 1; i < 5; i++)
-	{
-		sprintf_s(znach, "%.2f", Min + i * (Max - Min) / 4);
-		MemDc->TextOut(0 + AbsMax * 0.1, WinPic.Height() * (9 - 2 * i) / 10, CString(znach));
-	}
+
 	// вывод на экран
-	WinDc->BitBlt(0, 0, WinPic.Width(), WinPic.Height(), MemDc, 0, 0, SRCCOPY);
+	WinDc->BitBlt(0, 0, window_signal_width, window_signal_height, MemDc, 0, 0, SRCCOPY);
 	delete MemDc;
 }
 
@@ -282,12 +311,12 @@ void CLogisticModelDlg::DrawDotsBifurcation(Points* Mass, CDC* WinDc, CRect WinP
 	MemDc = new CDC;
 	MemDc->CreateCompatibleDC(WinDc);
 
-	double window_signal_width = WinPic.Width();
-	double window_signal_height = WinPic.Height();
+	double window_signal_width = WinPic.Width() * scale;
+	double window_signal_height = WinPic.Height() * scale;
 	xp = (window_signal_width / (xmax - xmin));			//Коэффициенты пересчёта координат по Х
 	yp = -(window_signal_height / (ymax - ymin));			//Коэффициенты пересчёта координат по У
 
-	bmp.CreateCompatibleBitmap(WinDc, WinPic.Width(), WinPic.Height());
+	bmp.CreateCompatibleBitmap(WinDc, window_signal_width, window_signal_height);
 	CBitmap* pBmp = (CBitmap*)MemDc->SelectObject(&bmp);
 	// заливка фона графика белым цветом
 	MemDc->FillSolidRect(WinPic, RGB(255, 255, 255));
@@ -295,15 +324,15 @@ void CLogisticModelDlg::DrawDotsBifurcation(Points* Mass, CDC* WinDc, CRect WinP
 	MemDc->SelectObject(&osi_pen);
 
 	//создаём Ось Y
-	MemDc->MoveTo(DOTS(0, ymax));
-	MemDc->LineTo(DOTS(0, ymin));
+	MemDc->MoveTo(DOTS(defaultX0, ymax));
+	MemDc->LineTo(DOTS(defaultX0, ymin));
 	//создаём Ось Х
-	MemDc->MoveTo(DOTS(xmin, 0));
-	MemDc->LineTo(DOTS(xmax, 0));
+	MemDc->MoveTo(DOTS(xmin, -defaultY0));
+	MemDc->LineTo(DOTS(xmax, -defaultY0));
 
 	MemDc->SelectObject(&setka_pen);
 	//отрисовка сетки по y
-	for (double x = 0; x <= xmax; x += xmax / 8)
+	for (double x = 0; x <= xmax; x += xmax / scale / 8)
 	{
 		if (x != 0) {
 			MemDc->MoveTo(DOTS(x, ymax));
@@ -311,7 +340,7 @@ void CLogisticModelDlg::DrawDotsBifurcation(Points* Mass, CDC* WinDc, CRect WinP
 		}
 	}
 	//отрисовка сетки по x
-	for (double y = -ymax; y < ymax; y += ymax / 4)
+	for (double y = -ymax; y < ymax; y += ymax / scale / 4)
 	{
 		if (y != 0) {
 			MemDc->MoveTo(DOTS(xmin, y));
@@ -327,35 +356,34 @@ void CLogisticModelDlg::DrawDotsBifurcation(Points* Mass, CDC* WinDc, CRect WinP
 	MemDc->SelectObject(&font);
 
 	//подпись осей
-	MemDc->TextOutW(DOTS(0.02 * xmax, 0.98 * ymax), _T("x")); //Y
-	MemDc->TextOutW(DOTS(xmax - xmax / 15, 0.2 * ymax), _T("t")); //X
+	MemDc->TextOutW(DOTS(0.02 * xmax, 0.98 * ymax), _T("x1000")); //Y
+	MemDc->TextOutW(DOTS(xmax - xmax / 15, 0.2 * ymax), _T("R")); //X
 
 	//по Y с шагом 5
-	for (double i = -ymax; i <= ymax; i += ymax / 4)
+	for (double i = -ymax; i <= ymax; i += ymax / scale / 4)
 	{
 		CString str;
 		if (i != 0)
 		{
-			str.Format(_T("%.3f"), i);
+			str.Format(_T("%.3f"), i / scale + defaultY0 / scale);
 			MemDc->TextOutW(DOTS(xmin + xmax / 50, i + 0.03 * ymax), str);
 		}
 	}
 	//по X с шагом 0.5
-	for (double j = 0; j <= xmax; j += xmax / 8)
+	for (double j = 0; j <= xmax; j += xmax / scale / 8)
 	{
 		CString str;
 		if (j != 0) {
-			str.Format(_T("%.1f"), j);
-			MemDc->TextOutW(DOTS(j - xmax / 100, 0), str);
+			str.Format(_T("%.1f"), j / scale - defaultX0 / scale);
+			MemDc->TextOutW(DOTS(j - xmax / 100, -defaultY0), str);
 		}
 	}
 
 	// отрисовка
 	MemDc->SelectObject(graphpen);
-	MemDc->MoveTo(DOTS(0, Mass[0].y_x1000));
 	for (int i = 0; i < AbsMax; i++)
 	{
-		MemDc->Ellipse(DOTS(Mass[i].x_R - xmax * 0.001, Mass[i].y_x1000 - ymax * 0.005), DOTS(Mass[i].x_R + xmax * 0.001, Mass[i].y_x1000 + ymax * 0.005));
+		MemDc->Ellipse(DOTS(Mass[i].x_R * scale + defaultX0 - xmax * 0.001, Mass[i].y_x1000 * scale - defaultY0 - ymax * 0.001), DOTS(Mass[i].x_R * scale + defaultX0 + xmax * 0.001, Mass[i].y_x1000 * scale - defaultY0 + ymax * 0.001));
 	}
 
 	// вывод на экран
@@ -379,8 +407,8 @@ void CLogisticModelDlg::DrawLinesBifurcation(PointsToLine* Mass, CDC* WinDc, CRe
 	MemDc = new CDC;
 	MemDc->CreateCompatibleDC(WinDc);
 
-	double window_signal_width = WinPic.Width();
-	double window_signal_height = WinPic.Height();
+	double window_signal_width = WinPic.Width() * scale;
+	double window_signal_height = WinPic.Height() * scale;
 	xp = (window_signal_width / (xmax - xmin));			//Коэффициенты пересчёта координат по Х
 	yp = -(window_signal_height / (ymax - ymin));			//Коэффициенты пересчёта координат по У
 
@@ -392,15 +420,15 @@ void CLogisticModelDlg::DrawLinesBifurcation(PointsToLine* Mass, CDC* WinDc, CRe
 	MemDc->SelectObject(&osi_pen);
 
 	//создаём Ось Y
-	MemDc->MoveTo(DOTS(0, ymax));
-	MemDc->LineTo(DOTS(0, ymin));
+	MemDc->MoveTo(DOTS(defaultX0, ymax));
+	MemDc->LineTo(DOTS(defaultX0, ymin));
 	//создаём Ось Х
-	MemDc->MoveTo(DOTS(xmin, 0));
-	MemDc->LineTo(DOTS(xmax, 0));
+	MemDc->MoveTo(DOTS(xmin, -defaultY0));
+	MemDc->LineTo(DOTS(xmax, -defaultY0));
 
 	MemDc->SelectObject(&setka_pen);
 	//отрисовка сетки по y
-	for (double x = 0; x <= xmax; x += xmax / 8)
+	for (double x = 0; x <= xmax; x += xmax / scale / 8)
 	{
 		if (x != 0) {
 			MemDc->MoveTo(DOTS(x, ymax));
@@ -408,7 +436,7 @@ void CLogisticModelDlg::DrawLinesBifurcation(PointsToLine* Mass, CDC* WinDc, CRe
 		}
 	}
 	//отрисовка сетки по x
-	for (double y = -ymax; y < ymax; y += ymax / 4)
+	for (double y = -ymax; y < ymax; y += ymax / scale / 4)
 	{
 		if (y != 0) {
 			MemDc->MoveTo(DOTS(xmin, y));
@@ -424,36 +452,35 @@ void CLogisticModelDlg::DrawLinesBifurcation(PointsToLine* Mass, CDC* WinDc, CRe
 	MemDc->SelectObject(&font);
 
 	//подпись осей
-	MemDc->TextOutW(DOTS(0.02 * xmax, 0.98 * ymax), _T("x")); //Y
-	MemDc->TextOutW(DOTS(xmax - xmax / 15, 0.2 * ymax), _T("t")); //X
+	MemDc->TextOutW(DOTS(0.02 * xmax, 0.98 * ymax), _T("x1000")); //Y
+	MemDc->TextOutW(DOTS(xmax - xmax / 15, 0.2 * ymax), _T("R")); //X
 
 	//по Y с шагом 5
-	for (double i = -ymax; i <= ymax; i += ymax / 4)
+	for (double i = -ymax; i <= ymax; i += ymax / scale / 4)
 	{
 		CString str;
 		if (i != 0)
 		{
-			str.Format(_T("%.3f"), i);
+			str.Format(_T("%.3f"), i / scale + defaultY0 / scale);
 			MemDc->TextOutW(DOTS(xmin + xmax / 50, i + 0.03 * ymax), str);
 		}
 	}
 	//по X с шагом 0.5
-	for (double j = 0; j <= xmax; j += xmax / 8)
+	for (double j = 0; j <= xmax; j += xmax / scale / 8)
 	{
 		CString str;
 		if (j != 0) {
-			str.Format(_T("%.1f"), j);
-			MemDc->TextOutW(DOTS(j - xmax / 100, 0), str);
+			str.Format(_T("%.1f"), j / scale - defaultX0 / scale);
+			MemDc->TextOutW(DOTS(j - xmax / 100, -defaultY0), str);
 		}
 	}
 
 	// отрисовка
 	MemDc->SelectObject(graphpen);
-	MemDc->MoveTo(DOTS(Mass[0].x_R, Mass[0].y_x1000));
-	for (int i = 1; i < AbsMax; i++)
+	for (int i = 0; i < AbsMax; i++)
 	{
-		MemDc->LineTo(DOTS(Mass[i].x_R, Mass[i].y_x1000));
-		MemDc->MoveTo(DOTS(Mass[Mass[i].IndexPreviousPoint].x_R, Mass[Mass[i].IndexPreviousPoint].y_x1000));
+		MemDc->MoveTo(DOTS(Mass[i].x_R * scale + defaultX0, Mass[i].y_x1000 * scale - defaultY0));
+		MemDc->LineTo(DOTS(Mass[Mass[i].IndexPreviousPoint].x_R * scale + defaultX0, Mass[Mass[i].IndexPreviousPoint].y_x1000 * scale - defaultY0));
 	}
 
 	// вывод на экран
@@ -463,6 +490,7 @@ void CLogisticModelDlg::DrawLinesBifurcation(PointsToLine* Mass, CDC* WinDc, CRe
 
 void CLogisticModelDlg::Signal(int t)
 {
+	delete[] sign;
 	sign = new double[t];
 	for (int i = 0; i < t; i++)
 	{
@@ -483,7 +511,7 @@ void CLogisticModelDlg::UniqArrayWithPrecision(double* arr, int size, int& NewSi
 	{
 		for (int counter2 = counter1 + 1; counter2 < size; counter2++)
 		{
-			if (abs(arr[counter1] - arr[counter2]) <= precision) // если найден одинаковый элемент
+			if (fabs(arr[counter1] - arr[counter2]) <= precision) // если найден одинаковый элемент
 			{
 				for (int counter_shift = counter2; counter_shift < size - 1; counter_shift++)
 				{
@@ -492,7 +520,7 @@ void CLogisticModelDlg::UniqArrayWithPrecision(double* arr, int size, int& NewSi
 				}
 				size -= 1; // уменьшить размер массива на 1
 
-				if (abs(arr[counter1] - arr[counter2]) <= precision) // если следующий элемент - дубль
+				if (fabs(arr[counter1] - arr[counter2]) <= precision) // если следующий элемент - дубль
 				{
 					counter2--; // выполнить переход на предыдущий элемент     
 				}
@@ -500,13 +528,6 @@ void CLogisticModelDlg::UniqArrayWithPrecision(double* arr, int size, int& NewSi
 		}
 	}
 	NewSize = size;
-}
-
-double CLogisticModelDlg::DistBetweenPoints(Points* p1, Points* p2)
-{
-	return sqrt((p1->x_R - p2->x_R) * (p1->x_R - p2->x_R) +
-		(p1->y_x1000 - p2->y_x1000) * (p1->y_x1000 - p2->y_x1000)
-	);
 }
 
 void CLogisticModelDlg::OnBnClickedButtonExit()
@@ -574,7 +595,7 @@ void CLogisticModelDlg::OnBnClickedButtonStart()
 		out.close();*/
 
 		UpdateData(false);
-		delete[] sign;
+		//delete[] sign;
 	}
 
 	if (m_radio_bifur.GetCheck() == BST_CHECKED)
@@ -597,12 +618,13 @@ void CLogisticModelDlg::OnBnClickedButtonStart()
 		VectorX1000.clear();
 		VectorR.clear();
 
-		double* x1000 = new double[num_of_counts] {0};
-
-
 		if (dots_draw.GetCheck() == BST_CHECKED)
 		{
-			R_Step = 0.05;
+			delete[] BifurcationDots;
+			delete[] BifurcationLines;
+
+			double* x1000 = new double[num_of_counts] {0};
+
 			for (double r = R_from; r <= R_to; r += R_Step)
 			{
 				R_koef = r;
@@ -621,8 +643,6 @@ void CLogisticModelDlg::OnBnClickedButtonStart()
 					double difference = 0;
 
 					x1000[num] = sign[k - 1];
-
-					delete[] sign;
 				}
 				UniqArrayWithPrecision(x1000, num_of_counts, NewSize);
 
@@ -633,36 +653,59 @@ void CLogisticModelDlg::OnBnClickedButtonStart()
 				}
 			}
 
-			int bifurSize = 0;
-			ofstream out("bifurcation_dots_struct.txt");
-			out << VectorR.size() << endl << VectorX1000.size();
+			bifurSize = 0;
+			//ofstream out("bifurcation_dots_struct.txt");
+			///*out << VectorR.size() << endl << VectorX1000.size();*/
 			if (VectorR.size() == VectorX1000.size())
 			{
 				bifurSize = VectorR.size();
-				Points* BifurcationDots = new Points[bifurSize];
-				PointsToLine* BifurcationLines = new PointsToLine[bifurSize];
+				BifurcationDots = new Points[bifurSize];
+				BifurcationLines = new PointsToLine[bifurSize];
 				for (int i = 0; i < bifurSize; i++)
 				{
 					BifurcationDots[i] = { 0, 0 };
 					BifurcationDots[i] = { VectorR[i], VectorX1000[i] };
 
-					out << endl << "Значение R: " << BifurcationDots[i].x_R << "\tЗначение X1000: " << BifurcationDots[i].y_x1000 << endl << endl << endl;
+					/*out << endl << "Значение R: " << BifurcationDots[i].x_R << "\tЗначение X1000: " << BifurcationDots[i].y_x1000 << endl << endl << endl;*/
 				}
-				out.close();
+				/*out.close();*/
+
+				for (int i = 0; i < bifurSize; i++)
+				{
+					if (BifurcationDots[i].x_R != BifurcationDots[i + 1].x_R && BifurcationDots[i + 1].x_R == BifurcationDots[i + 2].x_R && BifurcationDots[i].x_R <= 0.75 * R_to)
+					{
+						b1_dot = BifurcationDots[i].x_R;
+						break;
+					}
+				}
+
+				for (int i = 0; i < bifurSize; i++)
+				{
+					if (BifurcationDots[i].x_R == BifurcationDots[i + 1].x_R && BifurcationDots[i + 2].x_R == BifurcationDots[i + 3].x_R
+						&& BifurcationDots[i + 2].x_R == BifurcationDots[i + 4].x_R && BifurcationDots[i + 2].x_R != BifurcationDots[i].x_R
+						&& BifurcationDots[i + 4].x_R == BifurcationDots[i + 5].x_R && BifurcationDots[i + 5].x_R != BifurcationDots[i + 6].x_R)
+					{
+						b2_up_dot = BifurcationDots[i].x_R;
+						b2_down_dot = BifurcationDots[i].x_R;
+						break;
+					}
+				}
 
 				DrawDotsBifurcation(BifurcationDots, PicDc, Pic, &bifurcation_dots_pen, bifurSize);
 
-				GraphSignature.SetWindowText(_T("Рис. Бифуркационная диаграмма логистического отображения."));
+				GraphSignature.SetWindowText(_T("Рис. Бифуркационная диаграмма логистического отображения (точ)."));
+				delete[] x1000;
 
 				UpdateData(false);
-				delete[] x1000;
-				delete[] BifurcationDots;
-				delete[] BifurcationLines;
 			}
 		}
 		if (lines_draw.GetCheck() == BST_CHECKED)
 		{
-			R_Step = 0.001;
+			delete[] BifurcationDots;
+			delete[] BifurcationLines;
+
+			double* x1000 = new double[num_of_counts] {0};
+
 			for (double r = R_from; r <= R_to; r += R_Step)
 			{
 				R_koef = r;
@@ -681,80 +724,135 @@ void CLogisticModelDlg::OnBnClickedButtonStart()
 					double difference = 0;
 
 					x1000[num] = sign[k - 1];
-
-					delete[] sign;
 				}
 				UniqArrayWithPrecision(x1000, num_of_counts, NewSize);
 
 				for (int i = 0; i < NewSize; i++)
 				{
 					VectorX1000.push_back(x1000[i]);
-					VectorR.push_back(r);
+					VectorR.push_back((double)r);
 				}
 			}
 
-			int bifurSize = 0;
-			ofstream out("bifurcation_dots_struct.txt");
-			out << VectorR.size() << endl << VectorX1000.size();
+			bifurSize = 0;
+			/*ofstream out("bifurcation_dots_struct.txt");*/
+			/*out << VectorR.size() << endl << VectorX1000.size();*/
 			if (VectorR.size() == VectorX1000.size())
 			{
 				bifurSize = VectorR.size();
-				Points* BifurcationDots = new Points[bifurSize];
-				PointsToLine* BifurcationLines = new PointsToLine[bifurSize];
+				BifurcationDots = new Points[bifurSize];
+				BifurcationLines = new PointsToLine[bifurSize];
 				for (int i = 0; i < bifurSize; i++)
 				{
 					BifurcationDots[i] = { 0, 0 };
-					BifurcationLines[i] = { 0, 0, 0 };
+					if (i != 0) BifurcationLines[i] = { 0, 0, i - 1 };
+					else BifurcationLines[i] = { 0, 0, 0 };
 
-					BifurcationDots[i] = { VectorR[i], VectorX1000[i] };
+					BifurcationDots[i] = { (double)VectorR[i], (double)VectorX1000[i] };
 
-					out << endl << "Значение R: " << BifurcationDots[i].x_R << "\tЗначение X1000: " << BifurcationDots[i].y_x1000 << endl << endl << endl;
+					/*out << endl << "Значение R: " << BifurcationDots[i].x_R << "\tЗначение X1000: " << BifurcationDots[i].y_x1000 << endl << endl << endl;*/
 				}
-				out.close();
+				/*	out.close();*/
 
-				//vector<int> IndexVec;
-				//for (int i = 0; i < bifurSize; i++)
-				//{
-				//	for (int j = 0; j < bifurSize; j++)
-				//	{
-				//		/*if (BifurcationDots[j].x_R == BifurcationDots[i].x_R - R_Step)
-				//		{
-				//			IndexVec.push_back(j);
-				//		}
-				//		else
-				//		{
-				//			BifurcationLines[i]
-				//		}*/
-				//	}
-				//	if (IndexVec.empty() == false)
-				//	{
-				//		double min = DistBetweenPoints(&BifurcationDots[IndexVec[0]], &BifurcationDots[i]);
-				//		int PreviousIndex = 0;
-				//		for (int j = 0; j < IndexVec.size(); j++)
-				//		{
-				//			if (min > DistBetweenPoints(&BifurcationDots[IndexVec[j]], &BifurcationDots[i]))
-				//			{
-				//				min = DistBetweenPoints(&BifurcationDots[IndexVec[j]], &BifurcationDots[i]);
-				//				PreviousIndex = j;
-				//			}
-				//		}
-				//		BifurcationLines[i] = { BifurcationDots[i].x_R, BifurcationDots[i].y_x1000, PreviousIndex };
-				//	}
-				//	IndexVec.clear();
-				//}
+				vector<int> IndexVec;
+				int PreviousIndex = 0;
 
-				ofstream outt("bifLines.txt");
+				double x_i = 0;
+				double y_i = 0;
+
 				for (int i = 0; i < bifurSize; i++)
 				{
-					outt << i << "\t\t" << BifurcationLines[i].x_R << "\t\t" << BifurcationLines[i].IndexPreviousPoint << "\t\t" << BifurcationLines[i].y_x1000 << endl << endl;
-				}
-				DrawDotsBifurcation(BifurcationDots, PicDc, Pic, &bifurcation_dots_pen, bifurSize);
-				GraphSignature.SetWindowText(_T("Рис. Бифуркационная диаграмма логистического отображения."));
+					PreviousIndex = 0;
 
-				UpdateData(false);
+					x_i = (double)VectorR[i];
+					y_i = (double)VectorX1000[i];
+
+					if (x_i != 0.0)
+					{
+						double x_prev = x_i - R_Step;
+						for (int j = 0; j < i; j++)
+						{
+							if (BifurcationDots[j].x_R - x_prev < precision)
+							{
+								IndexVec.push_back(j);
+							}
+						}
+						if (IndexVec.empty() == false)
+						{
+							if (IndexVec.size() == 1)
+							{
+								BifurcationLines[i] = { x_i, y_i, IndexVec[0] };
+							}
+							else
+							{
+								double min = (x_i - BifurcationDots[IndexVec[0]].x_R) * (x_i - BifurcationDots[IndexVec[0]].x_R) + (y_i - BifurcationDots[IndexVec[0]].y_x1000) * (y_i - BifurcationDots[IndexVec[0]].y_x1000);
+								for (int j = 0; j < IndexVec.size(); j++)
+								{
+									if (min > (x_i - BifurcationDots[IndexVec[j]].x_R) * (x_i - BifurcationDots[IndexVec[j]].x_R) + (y_i - BifurcationDots[IndexVec[j]].y_x1000) * (y_i - BifurcationDots[IndexVec[j]].y_x1000))
+									{
+										min = (x_i - BifurcationDots[IndexVec[j]].x_R) * (x_i - BifurcationDots[IndexVec[j]].x_R) + (y_i - BifurcationDots[IndexVec[j]].y_x1000) * (y_i - BifurcationDots[IndexVec[j]].y_x1000);
+										PreviousIndex = IndexVec[j];
+									}
+								}
+								BifurcationLines[i] = { x_i, y_i, PreviousIndex };
+							}
+						}
+						else
+						{
+							PreviousIndex = i - 1;
+							BifurcationLines[i] = { x_i, y_i, PreviousIndex };
+						}
+					}
+					else
+					{
+						if (i == 0)
+						{
+							PreviousIndex = 0;
+							BifurcationLines[i] = { x_i, y_i, PreviousIndex };
+						}
+						else
+						{
+							PreviousIndex = i - 1;
+							BifurcationLines[i] = { x_i, y_i, PreviousIndex };
+						}
+					}
+					IndexVec.clear();
+				}
+
+				/*ofstream outt("bifLines.txt");
+				for (int i = 0; i < bifurSize; i++)
+				{
+					outt << "Index: " << i << "\tR: " << BifurcationLines[i].x_R << "\t\tPrev.Index: " << BifurcationLines[i].IndexPreviousPoint << "\t\tX1000: " << BifurcationLines[i].y_x1000 << endl << endl;
+				}*/
+
+				for (int i = 0; i < bifurSize; i++)
+				{
+					if (BifurcationLines[i].x_R != BifurcationLines[i + 1].x_R && BifurcationLines[i + 1].x_R == BifurcationLines[i + 2].x_R && BifurcationLines[i].x_R <= 0.75 * R_to)
+					{
+						b1_dot = BifurcationLines[i].x_R;
+						break;
+					}
+				}
+
+				for (int i = 0; i < bifurSize; i++)
+				{
+					if (BifurcationLines[i].x_R == BifurcationLines[i + 1].x_R && BifurcationLines[i + 2].x_R == BifurcationLines[i + 3].x_R
+						&& BifurcationLines[i + 2].x_R == BifurcationLines[i + 4].x_R && BifurcationLines[i + 2].x_R != BifurcationLines[i].x_R
+						&& BifurcationLines[i + 4].x_R == BifurcationLines[i + 5].x_R && BifurcationLines[i + 5].x_R != BifurcationLines[i + 6].x_R)
+					{
+						b2_up_dot = BifurcationLines[i].x_R;
+						b2_down_dot = BifurcationLines[i].x_R;
+						break;
+					}
+				}
+
+				DrawLinesBifurcation(BifurcationLines, PicDc, Pic, &bifurcation_lines_pen, bifurSize);
+				GraphSignature.SetWindowText(_T("Рис. Бифуркационная диаграмма логистического отображения (непр)."));
+
 				delete[] x1000;
-				delete[] BifurcationDots;
-				delete[] BifurcationLines;
+				UpdateData(false);
+				/*delete[] BifurcationDots;
+				delete[] BifurcationLines;*/
 			}
 		}
 	}
@@ -816,4 +914,72 @@ void CLogisticModelDlg::OnBnClickedRadioLogistic()
 
 	dots_draw.EnableWindow(FALSE);
 	lines_draw.EnableWindow(FALSE);
+}
+
+
+BOOL CLogisticModelDlg::OnMouseWheel(UINT nFlags, short zDelta, CPoint pt)
+{
+	// TODO: добавьте свой код обработчика сообщений или вызов стандартного
+
+	if (zDelta > 0) {
+		scale *= 1.1;
+	}
+	else {
+		if (scale > 1) scale /= 1.1;
+	}
+
+
+	if (m_radio_logistic.GetCheck() == BST_CHECKED) DrawSignal(sign, PicDc, Pic, &signal_pen, Length);
+	if (m_radio_bifur.GetCheck() == BST_CHECKED)
+	{
+		if (dots_draw.GetCheck() == BST_CHECKED) DrawDotsBifurcation(BifurcationDots, PicDc, Pic, &bifurcation_dots_pen, bifurSize);
+		if (lines_draw.GetCheck() == BST_CHECKED) DrawLinesBifurcation(BifurcationLines, PicDc, Pic, &bifurcation_lines_pen, bifurSize);
+	}
+	return CDialogEx::OnMouseWheel(nFlags, zDelta, pt);
+}
+
+
+void CLogisticModelDlg::OnMouseMove(UINT nFlags, CPoint point)
+{
+	// TODO: добавьте свой код обработчика сообщений или вызов стандартного
+	if ((nFlags & MK_LBUTTON) == MK_LBUTTON)
+	{
+		defaultX0 += (point.x - prevX) * scale / 1000;
+		prevX -= (point.x + prevX) * scale / 1000;
+
+
+		defaultY0 += (point.y - prevY) * scale / 10000;
+		prevY -= (point.y + prevY) * scale / 10000;
+
+		needRedraw = true;
+		needRedrawCount++;
+
+		if (needRedrawCount % 2 == 0) {
+			needRedraw = false;
+
+			if (m_radio_logistic.GetCheck() == BST_CHECKED) DrawSignal(sign, PicDc, Pic, &signal_pen, Length);
+			if (m_radio_bifur.GetCheck() == BST_CHECKED)
+			{
+				if (dots_draw.GetCheck() == BST_CHECKED) DrawDotsBifurcation(BifurcationDots, PicDc, Pic, &bifurcation_dots_pen, bifurSize);
+				if (lines_draw.GetCheck() == BST_CHECKED) DrawLinesBifurcation(BifurcationLines, PicDc, Pic, &bifurcation_lines_pen, bifurSize);
+			}
+		}
+	}
+	else {
+		prevX = point.x;
+		prevY = point.y;
+
+		if (needRedraw == true) {
+			needRedraw = false;
+
+			if (m_radio_logistic.GetCheck() == BST_CHECKED) DrawSignal(sign, PicDc, Pic, &signal_pen, Length);
+			if (m_radio_bifur.GetCheck() == BST_CHECKED)
+			{
+				if (dots_draw.GetCheck() == BST_CHECKED) DrawDotsBifurcation(BifurcationDots, PicDc, Pic, &bifurcation_dots_pen, bifurSize);
+				if (lines_draw.GetCheck() == BST_CHECKED) DrawLinesBifurcation(BifurcationLines, PicDc, Pic, &bifurcation_lines_pen, bifurSize);
+			}
+		}
+	}
+
+	CDialogEx::OnMouseMove(nFlags, point);
 }

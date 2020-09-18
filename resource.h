@@ -20,6 +20,9 @@
 #define IDC_RADIO_DOTS_DRAW             1013
 #define IDC_RADIO2                      1014
 #define IDC_RADIO_LINES_DRAW            1014
+#define IDC_STATIC_BIF_DOT_B1           1015
+#define IDC_STATIC_BIF_DOT_B2_UP        1016
+#define IDC_STATIC_BIF_DOT_B2_DOWN      1017
 
 // Next default values for new objects
 // 
@@ -27,7 +30,7 @@
 #ifndef APSTUDIO_READONLY_SYMBOLS
 #define _APS_NEXT_RESOURCE_VALUE        130
 #define _APS_NEXT_COMMAND_VALUE         32771
-#define _APS_NEXT_CONTROL_VALUE         1015
+#define _APS_NEXT_CONTROL_VALUE         1018
 #define _APS_NEXT_SYMED_VALUE           101
 #endif
 #endif

@@ -45,6 +45,10 @@ public:
 		int IndexPreviousPoint;
 	};
 
+	Points* BifurcationDots;
+	PointsToLine* BifurcationLines;
+	int bifurSize;
+
 	CWnd* PicWnd;				//области рисования
 	CDC* PicDc;
 	CRect Pic;
@@ -63,7 +67,6 @@ public:
 	void DrawSignal(double*, CDC*, CRect, CPen*, double);
 	void DrawDotsBifurcation(Points* Mass, CDC* WinDc, CRect WinPic, CPen* graphpen, int AbsMax);
 	void DrawLinesBifurcation(PointsToLine* Mass, CDC* WinDc, CRect WinPic, CPen* graphpen, int AbsMax);
-	double DistBetweenPoints(Points* p1, Points* p2);
 	void UniqArrayWithPrecision(double* arr, int size, int& NewSize);
 	void Mashtab(double arr[], int dim, double* mmin, double* mmax);
 
@@ -75,9 +78,18 @@ public:
 		xmin = -Length * 0.1, xmax = Length,				//максисимальное и минимальное значение х 
 		ymin = -0.001, ymax = 0.006;				//максисимальное и минимальное значение y
 
-	double R_Step = 0.05;
+	double R_Step = 0.005;
 	double R_from = 0.0;
 	double R_to = 4.0;
+	
+	double scale = 1;
+	bool needRedraw = false;
+	int needRedrawCount = 0;
+
+	double defaultX0 = 0;
+	double defaultY0 = 0;
+	double prevX = 0.0;
+	double prevY = 0.0;
 
 	double x0;
 	double R_koef;
@@ -103,4 +115,9 @@ public:
 	CEdit Edit_Prec;
 	CButton dots_draw;
 	CButton lines_draw;
+	afx_msg BOOL OnMouseWheel(UINT nFlags, short zDelta, CPoint pt);
+	afx_msg void OnMouseMove(UINT nFlags, CPoint point);
+	double b1_dot;
+	double b2_up_dot;
+	double b2_down_dot;
 };
